@@ -1,0 +1,3 @@
+source_table,target_table,key_column,date_column,test_date,null_columns,sample_size,compare_columns
+helix-gmpo-prod.helix_productanalytics_raw.product_apigee_apps,helix-data-prod.helix_apigee_raw.APIGEE_APPS,app_id,LAST_MODIFIED_DATE,2026-07-01,LAST_MODIFIED_DATE,20,
+helix-gmpo-prod.helix_productanalytics_raw.product_apigee_developers,helix-data-prod.helix_apigee_raw.APIGEE_DEVELOPERS,developer_id,LAST_MODIFIED_DATE,2026-07-01,LAST_MODIFIED_DATE,20,

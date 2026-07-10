@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                              http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.equinix.dqaf</groupId>
+    <artifactId>dqaf-validation-suite</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <cucumber.version>7.18.0</cucumber.version>
+        <junit.version>4.13.2</junit.version>
+        <!-- Where timestamped report copies get archived after every "mvn test".
+             Override with: mvn test -Ddqaf.archive.dir=C:\some\other\folder -->
+        <dqaf.archive.dir>${project.basedir}/reports-archive</dqaf.archive.dir>
+    </properties>
+
+    <dependencies>
+        <!-- Google BigQuery client -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-bigquery</artifactId>
+            <version>2.42.0</version>
+        </dependency>
+
+        <!-- CSV parsing for tables_config.csv -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-csv</artifactId>
+            <version>1.11.0</version>
+        </dependency>
+
+        <!-- Cucumber (BDD framework) -->
+        <dependency>
+            <groupId>io.cucumber</groupId>
+            <artifactId>cucumber-java</artifactId>
+            <version>${cucumber.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.cucumber</groupId>
+            <artifactId>cucumber-junit</artifactId>
+            <version>${cucumber.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- JUnit (runs the Cucumber tests) -->
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.1</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <testFailureIgnore>true</testFailureIgnore>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>net.masterthought</groupId>
+                <artifactId>maven-cucumber-reporting</artifactId>
+                <version>5.7.7</version>
+                <executions>
+                    <execution>
+                        <id>execution</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <configuration>
+                            <projectName>DQAF Validation Suite - Equinix L2C</projectName>
+                            <outputDirectory>${project.build.directory}/cucumber-html-reports</outputDirectory>
+                            <cucumberOutputDir>${project.build.directory}/cucumber-reports</cucumberOutputDir>
+                            <buildNumber>1</buildNumber>
+                            <checkBuildResult>false</checkBuildResult>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Archives all 3 generated reports into a timestamped folder under
+                 reports-archive/ so they survive "mvn clean" and past runs are kept
+                 side by side instead of being overwritten. Runs automatically after
+                 every "mvn test", no extra command needed. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>archive-dqaf-reports</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <tstamp>
+                                    <format property="dqaf.run.stamp" pattern="yyyy-MM-dd_HHmmss"/>
+                                </tstamp>
+                                <property name="dqaf.run.dir" value="${dqaf.archive.dir}/${dqaf.run.stamp}"/>
+                                <mkdir dir="${dqaf.run.dir}"/>
+
+                                <copy todir="${dqaf.run.dir}/dqaf-report" failonerror="false">
+                                    <fileset dir="${project.build.directory}/dqaf-report"/>
+                                </copy>
+                                <copy todir="${dqaf.run.dir}/cucumber-reports" failonerror="false">
+                                    <fileset dir="${project.build.directory}/cucumber-reports"/>
+                                </copy>
+                                <copy todir="${dqaf.run.dir}/cucumber-html-reports" failonerror="false">
+                                    <fileset dir="${project.build.directory}/cucumber-html-reports"/>
+                                </copy>
+
+                                <echo message="============================================================"/>
+                                <echo message=" DQAF reports archived to: ${dqaf.run.dir}"/>
+                                <echo message="============================================================"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

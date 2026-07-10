@@ -1,0 +1,6 @@
+target/
+reports-archive/
+*.class
+.idea/
+*.iml
+.vscode/
