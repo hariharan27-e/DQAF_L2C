@@ -16,27 +16,22 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <cucumber.version>7.18.0</cucumber.version>
         <junit.version>4.13.2</junit.version>
-        <!-- Where timestamped report copies get archived after every "mvn test".
-             Override with: mvn test -Ddqaf.archive.dir=C:\some\other\folder -->
         <dqaf.archive.dir>${project.basedir}/reports-archive</dqaf.archive.dir>
     </properties>
 
     <dependencies>
-        <!-- Google BigQuery client -->
         <dependency>
             <groupId>com.google.cloud</groupId>
             <artifactId>google-cloud-bigquery</artifactId>
             <version>2.42.0</version>
         </dependency>
 
-        <!-- CSV parsing for tables_config.csv -->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-csv</artifactId>
             <version>1.11.0</version>
         </dependency>
 
-        <!-- Cucumber (BDD framework) -->
         <dependency>
             <groupId>io.cucumber</groupId>
             <artifactId>cucumber-java</artifactId>
@@ -50,7 +45,6 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- JUnit (runs the Cucumber tests) -->
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
@@ -88,7 +82,9 @@
                         <configuration>
                             <projectName>DQAF Validation Suite - Equinix L2C</projectName>
                             <outputDirectory>${project.build.directory}/cucumber-html-reports</outputDirectory>
-                            <cucumberOutputDir>${project.build.directory}/cucumber-reports</cucumberOutputDir>
+                            <jsonFiles>
+                                <jsonFile>cucumber-reports/*.json</jsonFile>
+                            </jsonFiles>
                             <buildNumber>1</buildNumber>
                             <checkBuildResult>false</checkBuildResult>
                         </configuration>
@@ -96,10 +92,6 @@
                 </executions>
             </plugin>
 
-            <!-- Archives all 3 generated reports into a timestamped folder under
-                 reports-archive/ so they survive "mvn clean" and past runs are kept
-                 side by side instead of being overwritten. Runs automatically after
-                 every "mvn test", no extra command needed. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-antrun-plugin</artifactId>
