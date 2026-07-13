@@ -1,9 +1,11 @@
 pipeline {
     agent any
 
+    // Configure these under: Manage Jenkins > Tools
+    // (names below must match exactly what you configure there)
     tools {
-        maven 'maven-3.9'
-        jdk 'jdk-17'
+        maven 'Maven-3.9'
+        jdk 'JDK-17'
     }
 
     options {
@@ -12,7 +14,13 @@ pipeline {
     }
 
     environment {
+        // Billing/quota project used for BigQuery queries.
+        // Change this to whichever project your service account can run jobs in.
         GOOGLE_CLOUD_PROJECT = 'helix-gmpo-prod'
+
+        // A GCP service account JSON key uploaded to Jenkins as a
+        // "Secret file" credential (Manage Jenkins > Credentials > Add Credentials
+        // > Kind: Secret file). Put that credential's ID below.
         GOOGLE_APPLICATION_CREDENTIALS = credentials('bigquery-service-account-key')
     }
 
@@ -25,13 +33,16 @@ pipeline {
 
         stage('Run DQAF Validation Suite') {
             steps {
-                bat 'mvn clean test'
+                sh 'mvn clean test'
             }
         }
     }
 
     post {
         always {
+            // Publishes the custom per-table colored report with a permanent
+            // Jenkins URL, e.g.:
+            // http://<jenkins-host>/job/dqaf-validation-suite/lastBuild/DQAF_20Validation_20Report/
             publishHTML(target: [
                 reportName          : 'DQAF Validation Report',
                 reportDir           : 'target/dqaf-report',
@@ -41,6 +52,7 @@ pipeline {
                 allowMissing        : false
             ])
 
+            // Publishes the standard Cucumber Masterthought dashboard too.
             publishHTML(target: [
                 reportName          : 'Cucumber Dashboard',
                 reportDir           : 'target/cucumber-html-reports',
@@ -50,6 +62,8 @@ pipeline {
                 allowMissing        : true
             ])
 
+            // Keeps a raw copy of every report on the build's Jenkins page too,
+            // downloadable as a zip from "Build Artifacts".
             archiveArtifacts artifacts: 'target/dqaf-report/**, target/cucumber-reports/**, target/cucumber-html-reports/**',
                               allowEmptyArchive: true
         }

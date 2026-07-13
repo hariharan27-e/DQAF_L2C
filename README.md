@@ -15,6 +15,28 @@ Each check runs as its **own Cucumber scenario**, looping over every table row i
 | 4 | Schema Check | Compares column names & types via `INFORMATION_SCHEMA.COLUMNS` |
 | 5 | Sample Data Validation | Samples N rows from source, diffs them against target on `compare_columns` |
 | 6 | Incremental Load Check | Checks the last 5 days ending at `test_date` (on `date_column`) -- confirms each day's new rows landed in target and match source |
+| 7 | Row Hash Reconciliation | Hashes every row on both sides (full table, not a sample) and flags any row whose hash differs |
+
+### About Row Hash Reconciliation (check #7)
+
+This check hashes **every row** in both source and target (using `compare_columns`, or every
+non-key column from source's schema if `compare_columns` is blank), then does a single
+`FULL OUTER JOIN` in BigQuery to find only the rows whose hash doesn't match. This scales to
+full tables cheaply -- only the (usually small) set of actual mismatches gets a full
+column-by-column drill-down afterward, capped at 20 rows per table to control BigQuery cost.
+
+**Two things this check does NOT do, by design:**
+- **It doesn't classify mismatches as "expected (transformation)" vs. "actual defect."**
+  That requires knowing your transformation rules per column, which the script has no way
+  to infer on its own. Every mismatch is reported as `NEEDS REVIEW` with the exact
+  source-vs-target values for each changed column, for a human to classify.
+- **It assumes matching column names** between source and target for the compared columns,
+  and assumes those columns are scalar (not `ARRAY`/`STRUCT` types, which can't be simply
+  `CAST(... AS STRING)`).
+
+If you want automated expected-vs-defect classification later, that would need a new CSV
+column (e.g. `expected_transformations`) describing per-column rules (uppercase, null
+replacement, etc.) -- happy to build that once the rules are defined.
 
 At the end of the run, a **custom colored HTML report is generated per table**, plus an
 index page linking to all of them:
@@ -141,3 +163,68 @@ target/dqaf-report/index.html
 - **New check type**: add a `CheckType` enum value in `CheckResult`, a step method in
   `FullValidationSteps`, a matching `When`/`Then` pair in the `.feature` file, and it will
   automatically get its own colored section in the report (grouped per table).
+
+## CI/CD: Jenkins + Git (shareable report links)
+
+Running locally only gives you `file:///C:/...` links, which nobody else can open. Wiring
+this into Jenkins gives every run a permanent, clickable URL that anyone on your network
+can open in a browser -- no manual uploading.
+
+### Step 1 -- Push this project to Git
+
+```bash
+cd dqaf-validation-suite
+git init
+git add .
+git commit -m "Initial DQAF validation suite"
+
+# GitHub example -- create an empty repo on GitHub first, then:
+git remote add origin https://github.com/<your-org>/dqaf-validation-suite.git
+git branch -M main
+git push -u origin main
+```
+
+(Same idea for GitLab/Bitbucket -- just swap the remote URL.)
+
+### Step 2 -- Install Jenkins plugins
+
+In Jenkins: **Manage Jenkins > Plugins > Available plugins**, install:
+- **Git** (usually pre-installed)
+- **Pipeline** (usually pre-installed)
+- **HTML Publisher** (this is the one that gives you the clickable report link)
+
+### Step 3 -- Configure tools
+
+**Manage Jenkins > Tools**:
+- Add a **JDK** installation named `JDK-17` (Java 17)
+- Add a **Maven** installation named `Maven-3.9` (or whichever version you have)
+
+(These names must match the `tools { }` block in the `Jenkinsfile` -- rename either side if you use different names.)
+
+### Step 4 -- Add your GCP credentials
+
+**Manage Jenkins > Credentials > System > Global credentials > Add Credentials**:
+- Kind: **Secret file**
+- File: upload your GCP service account JSON key (needs BigQuery read access to both
+  source and target projects/datasets, and `bigquery.jobs.create` on the billing project)
+- ID: `bigquery-service-account-key` (must match the ID used in the `Jenkinsfile`)
+
+### Step 5 -- Create the Jenkins job
+
+1. **New Item > Pipeline**, name it e.g. `dqaf-validation-suite`
+2. Under **Pipeline**, set **Definition** to `Pipeline script from SCM`
+3. **SCM**: Git, paste your repo URL from Step 1, add credentials if the repo is private
+4. **Script Path**: `Jenkinsfile` (already at the project root)
+5. Save, then click **Build Now**
+
+### Step 6 -- Get the shareable link
+
+After the build finishes, open the build page -- you'll see a **DQAF Validation Report**
+link in the left sidebar (and a **Cucumber Dashboard** link). Click it, then copy the
+browser's URL bar. That link works for anyone with access to your Jenkins server, and
+always shows that specific build's results. `alwaysLinkToLastBuild: true` also means
+`http://<jenkins-host>/job/dqaf-validation-suite/lastBuild/DQAF_20Validation_20Report/`
+always redirects to the most recent run.
+
+Every future push to your Git repo (if you add a webhook or poll trigger) can also
+auto-trigger a new build -- ask if you want that wired in too.

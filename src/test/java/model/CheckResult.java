@@ -15,7 +15,8 @@ public class CheckResult {
         NULL_CHECK("Null Check"),
         SCHEMA("Schema Check"),
         SAMPLE_DATA("Sample Data Validation"),
-        INCREMENTAL("Incremental Check");
+        INCREMENTAL("Incremental Check"),
+        ROW_HASH("Row Hash Reconciliation");
 
         public final String label;
         CheckType(String label) { this.label = label; }

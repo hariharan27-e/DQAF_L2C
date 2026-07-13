@@ -29,3 +29,7 @@ Feature: Data Quality Validation Suite - Config Driven
   Scenario: Incremental Load Check for every configured table
     When I run incremental checks for every configured table
     Then all incremental checks should have passed
+
+  Scenario: Row Hash Reconciliation for every configured table
+    When I run row hash reconciliation for every configured table
+    Then all row hash reconciliation checks should have passed

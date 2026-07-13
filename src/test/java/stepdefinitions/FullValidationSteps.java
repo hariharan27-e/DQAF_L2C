@@ -325,6 +325,94 @@ public class FullValidationSteps {
     }
 
     // -----------------------------------------------------------------
+    // 7. Row Hash Reconciliation
+    // -----------------------------------------------------------------
+
+    @When("I run row hash reconciliation for every configured table")
+    public void i_run_row_hash_reconciliation() {
+        for (TableConfig cfg : ctx.getTableConfigs()) {
+            CheckResult result = new CheckResult(cfg.getTableLabel(), CheckResult.CheckType.ROW_HASH);
+            try {
+                List<Map<String, Object>> mismatches = bq().findRowHashMismatches(
+                        cfg.getSourceTable(), cfg.getTargetTable(), cfg.getKeyColumn(),
+                        cfg.getCompareColumns(), 50);
+
+                if (mismatches.isEmpty()) {
+                    result.pass("Full row hash reconciliation: every row matched between source and target");
+                    ctx.addResult(result);
+                    continue;
+                }
+
+                // Only drill into column-level detail for a bounded subset, to control
+                // BigQuery cost -- the hash comparison itself already covered every row.
+                int drillDownLimit = Math.min(mismatches.size(), 20);
+                List<Object> keysToInspect = new ArrayList<>();
+                for (int i = 0; i < drillDownLimit; i++) {
+                    if ("HASH_MISMATCH".equals(mismatches.get(i).get("mismatch_type"))) {
+                        keysToInspect.add(mismatches.get(i).get("row_key"));
+                    }
+                }
+
+                Map<Object, Map<String, Object>> srcByKey = new LinkedHashMap<>();
+                Map<Object, Map<String, Object>> tgtByKey = new LinkedHashMap<>();
+                if (!keysToInspect.isEmpty()) {
+                    for (Map<String, Object> row : bq().getRowsByKeys(cfg.getSourceTable(), cfg.getKeyColumn(),
+                            keysToInspect, cfg.getCompareColumns())) {
+                        srcByKey.put(row.get(cfg.getKeyColumn()), row);
+                    }
+                    for (Map<String, Object> row : bq().getRowsByKeys(cfg.getTargetTable(), cfg.getKeyColumn(),
+                            keysToInspect, cfg.getCompareColumns())) {
+                        tgtByKey.put(row.get(cfg.getKeyColumn()), row);
+                    }
+                }
+
+                List<Map<String, Object>> reportRows = new ArrayList<>();
+                for (int i = 0; i < drillDownLimit; i++) {
+                    Object key = mismatches.get(i).get("row_key");
+                    String mismatchType = String.valueOf(mismatches.get(i).get("mismatch_type"));
+
+                    Map<String, Object> reportRow = new LinkedHashMap<>();
+                    reportRow.put(cfg.getKeyColumn(), key);
+                    reportRow.put("mismatch_type", mismatchType);
+
+                    if ("HASH_MISMATCH".equals(mismatchType) && srcByKey.containsKey(key) && tgtByKey.containsKey(key)) {
+                        Map<String, Object> s = srcByKey.get(key);
+                        Map<String, Object> t = tgtByKey.get(key);
+                        List<String> changed = new ArrayList<>();
+                        for (String col : s.keySet()) {
+                            if (col.equalsIgnoreCase(cfg.getKeyColumn())) continue;
+                            Object sv = s.get(col);
+                            Object tv = t.get(col);
+                            if (!java.util.Objects.equals(String.valueOf(sv), String.valueOf(tv))) {
+                                changed.add(col + ": source='" + sv + "' vs target='" + tv + "'");
+                            }
+                        }
+                        reportRow.put("changed_columns", String.join(" | ", changed));
+                        reportRow.put("review_status", "NEEDS REVIEW -- verify against transformation logic");
+                        result.addDetail("Key '" + key + "' differs: " + String.join(", ", changed));
+                    } else {
+                        reportRow.put("changed_columns", mismatchType);
+                        result.addDetail("Key '" + key + "': " + mismatchType);
+                    }
+                    reportRows.add(reportRow);
+                }
+                result.setSampleRows(reportRows);
+                result.fail(mismatches.size() + " row(s) with differing hash found between source and target " +
+                        "(showing up to " + drillDownLimit + " with column-level detail below -- " +
+                        "each needs manual review against expected transformation logic)");
+            } catch (Exception e) {
+                result.error("Row hash reconciliation failed to execute: " + e.getMessage());
+            }
+            ctx.addResult(result);
+        }
+    }
+
+    @Then("all row hash reconciliation checks should have passed")
+    public void all_row_hash_reconciliation_checks_should_have_passed() {
+        assertAllPassed(CheckResult.CheckType.ROW_HASH);
+    }
+
+    // -----------------------------------------------------------------
     // Shared assertion helper
     // -----------------------------------------------------------------
 

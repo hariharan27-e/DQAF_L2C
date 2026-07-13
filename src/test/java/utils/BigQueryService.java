@@ -13,21 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Thin wrapper around the BigQuery client. Table identifiers are expected in
- * fully-qualified "project.dataset.table" form, exactly as they appear in
- * tables_config.csv.
- *
- * Uses Application Default Credentials -- run `gcloud auth application-default login`
- * or set GOOGLE_APPLICATION_CREDENTIALS before running the suite.
- *
- * The client is created LAZILY (on first real use, not at class-load time) because
- * building it requires a billing/quota project ID. Resolution order:
- *   1. -Dbq.project=<id> system property
- *   2. GOOGLE_CLOUD_PROJECT / GCP_PROJECT environment variable
- *   3. The project segment of the first table in tables_config.csv (fallback)
- *   4. Whatever Application Default Credentials can determine on its own
- */
+
 public class BigQueryService {
 
     private static volatile BigQueryService instance;
@@ -202,6 +188,55 @@ public class BigQueryService {
             rows.add(map);
         }
         return rows;
+    }
+
+    /**
+     * Full-table row hash reconciliation: hashes every row on both sides (using the
+     * given columns, or every non-key column from source's schema if columns is empty),
+     * then returns only the rows whose hash differs -- i.e. actually mismatched, missing
+     * on one side, or extra on one side. Cheap at scale because only the small set of
+     * mismatched keys needs any further column-level drill-down (done separately by the
+     * caller via getRowsByKeys).
+     *
+     * ASSUMPTION: source and target share the same column names for the compared columns.
+     * ASSUMPTION: compared columns are scalar (CAST-able to STRING) -- not ARRAY/STRUCT.
+     */
+    public List<Map<String, Object>> findRowHashMismatches(String sourceTable, String targetTable,
+                                                             String keyColumn, List<String> compareColumns,
+                                                             int limit) {
+        List<String> cols = compareColumns;
+        if (cols.isEmpty()) {
+            Map<String, String> schema = getSchema(sourceTable);
+            cols = new ArrayList<>();
+            for (String col : schema.keySet()) {
+                if (!col.equalsIgnoreCase(keyColumn)) {
+                    cols.add(col);
+                }
+            }
+        }
+
+        StringBuilder structCols = new StringBuilder();
+        for (String c : cols) {
+            if (structCols.length() > 0) structCols.append(", ");
+            structCols.append("CAST(").append(c).append(" AS STRING) AS ").append(c);
+        }
+
+        String sql = String.format(
+                "WITH src AS (" +
+                        "  SELECT %s AS row_key, TO_HEX(SHA256(TO_JSON_STRING(STRUCT(%s)))) AS row_hash FROM `%s`" +
+                        "), tgt AS (" +
+                        "  SELECT %s AS row_key, TO_HEX(SHA256(TO_JSON_STRING(STRUCT(%s)))) AS row_hash FROM `%s`" +
+                        ") " +
+                        "SELECT COALESCE(src.row_key, tgt.row_key) AS row_key, " +
+                        "  CASE WHEN src.row_key IS NULL THEN 'MISSING_IN_SOURCE' " +
+                        "       WHEN tgt.row_key IS NULL THEN 'MISSING_IN_TARGET' " +
+                        "       ELSE 'HASH_MISMATCH' END AS mismatch_type " +
+                        "FROM src FULL OUTER JOIN tgt ON src.row_key = tgt.row_key " +
+                        "WHERE src.row_hash IS DISTINCT FROM tgt.row_hash " +
+                        "LIMIT %d",
+                keyColumn, structCols, sourceTable, keyColumn, structCols, targetTable, limit);
+
+        return toListOfMaps(runQuery(sql));
     }
 
     private String sanitizeAlias(String col) {
