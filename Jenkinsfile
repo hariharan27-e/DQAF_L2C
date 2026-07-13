@@ -25,7 +25,7 @@ pipeline {
 
         stage('Run DQAF Validation Suite') {
             steps {
-                sh 'mvn clean test'
+                bat 'mvn clean test'
             }
         }
     }
